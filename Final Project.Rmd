@@ -1,0 +1,434 @@
+---
+title: "Prediction of Wins in the MLB"
+output:
+  flexdashboard::flex_dashboard:
+    theme:
+      version: 4
+      bootswatch: minty
+    orientation: columns
+    vertical_layout: fill
+    source_code: embed
+    target: blank
+---
+```{r setup}
+library(flexdashboard)
+library(plotly)
+library("Lahman")
+library(conflicted)
+conflict_prefer("select", "dplyr")
+conflict_prefer("remove", "dplyr")
+conflicts_prefer(dplyr::filter)
+library(tidyverse)
+library(pacman)
+library(car)
+library(MASS)
+library(leaps)
+library(corrplot)
+library(knitr)
+data("Teams")
+
+wt <- Teams %>%
+  filter(yearID >= 1980, yearID != 2020, yearID != 1981, yearID != 1994, yearID != 1995)
+```
+
+
+Introduction
+===
+
+Column {data-width=400}
+---
+### Title
+
+**Prediction of Wins in the MLB Based off Pitching Statistics**
+
+##### Abstract
+
+This project examines how pitching performance contributes to overall team wins in Major League Baseball (MLB). Using data from the Lahman database stats, we created a linear regression model after conducting exploratory data analysis as well as model analysis to create our final model. Using HA, HRA, SHO, SV, and ERA as predictors, we received an adjusted $R^2$ value of 55.73% with all predictors being significant. These results highlight key pitching statistics that best explain the variation in team wins since 1980.
+
+### Introduction
+
+A team's success in the Major League Baseball (MLB) is influenced by many different factors such as offensive, defensive, and pitching. Out of all these factors, pitching is the most crucial part. Preventing teams to score runs increases the team's likelihood of winning games. There is a variety of different pitching statistics that could influence the entire game as a whole. Understanding these relationships could provide insight into how pitching effects the amount of wins a team has.
+
+This project focuses on examining how pitching performance contributes to a team's success by using a multiple linear regression model to identify which pitching statistics strongest associate with team success. There is a long list of many predictors in the Lahman database, but we are only interested in the pitching statistics from each team. The Lahman database was created by Sean Lahman and it contains complete MLB stats dating back to 1871. So we have selected the predictors stated in the "List of Variables".
+
+With these stats we are able to capture different aspects of pitching effectiveness. We will be looking at stats from 1980 to present day to limit the variability in rules and regulations from affecting our data. We will also be removing the years 1981, 1994, 1995, and 2020 because the MLB did not play their regular 162 game season. Using the selected predictors, this project aims to predict the amount of wins in an MLB season based on pitching statistics.
+
+Column {.tabset data-width=600}
+---
+### List of Variables
+
+**W** - Amount of Wins
+
+**ERA** - Earned Run Average, which is total number of runs that score against a pitcher that are not due to errors or passed balls divided by 9
+
+**HA** - Hits Allowed
+
+**BBA** - Walks Allowed
+
+**SOA** - Strikeouts by Pitchers
+
+**HRA** - Homeruns Allowed
+
+**RA** - Opponents Runs Allowed
+
+**SHO** - Shutouts by Pitchers
+
+**SV** - Saves. A save is awarded to the relief pitcher who finishes a game for the winning team, under certain circumstances.
+
+### Relation to Eachother
+
+```{r pairs}
+sample(1:nrow(wt), 50) -> index
+wt[index,] -> wt_cor
+pairs(~W + HA + BBA + SOA + HRA + RA + SHO + SV + ERA, data = wt_cor, col = "darkgreen")
+```
+
+### Glimpse of Dataset
+
+```{r glimpse}
+wt <- wt %>% 
+  select(W, HA, BBA, SOA, HRA, RA, SHO, SV, ERA)
+knitr::kable(wt[1:10, ])
+```
+
+Exploratory Data Analysis
+===
+
+Column {.tabset data-width=600}
+---
+
+### W
+
+```{r W}
+wt %>%
+  ggplot(aes(x=W)) + geom_histogram(fill = "#A8E6CF", color = "black",binwidth = 5)
+```
+
+### ERA
+```{r ERA}
+wt %>%
+  ggplot(aes(x=ERA)) + geom_histogram(fill = "#DCE775", color = "black", binwidth = .2)
+```
+
+### HA
+```{r HA}
+wt %>%
+  ggplot(aes(x=HA)) + geom_histogram(fill = "#A8E6CF", color = "black")
+```
+
+### BBA
+```{r BBA}
+wt %>%
+  ggplot(aes(x=BBA)) + geom_histogram(fill = "#DCE775", color = "black")
+```
+
+### SOA
+```{r SOA}
+wt %>%
+  ggplot(aes(x=SOA)) + geom_histogram(fill = "#A8E6CF", color = "black")
+```
+
+### HRA
+```{r HRA}
+wt %>%
+  ggplot(aes(x=HRA)) + geom_histogram(fill = "#DCE775", color = "black")
+```
+
+### RA
+```{r RA}
+wt %>%
+  ggplot(aes(x=RA)) + geom_histogram(fill = "#A8E6CF", color = "black")
+```
+
+### SHO
+```{r SHO}
+wt %>%
+  ggplot(aes(x=SHO)) + geom_histogram(fill = "#DCE775", color = "black", binwidth = 1)
+```
+
+### SV
+```{r SV}
+wt %>%
+  ggplot(aes(x=SV)) + geom_histogram(fill = "#A8E6CF", color = "black", binwidth = 2)
+```
+
+### Correlation
+```{r cor}
+ccc <- cor(wt)
+corrplot.mixed(ccc, number.cex = .5)
+```
+
+### Summary Statistics
+```{r stats}
+summary(wt)
+```
+
+Column {.tabset data-width=400}
+---
+
+### Analysis
+
+**W** - This plot seems to be slightly skewed to the left with a median of 81 wins and the middle 50 percent of the data is between 73 and 90 wins. There are no noticeable outliers.
+
+**ERA** - This plot is slightly skewed to the right but looks relatively normal with a median of 4.11 ERA and the middle 50 percent of the data is between 3.77 and 4.53 ERA. There are no noticeable outliers.
+
+**HA** - This plot is relatively normal with the median being 1429 hits against. The middle 50 percent of the data is between 1364 and 1497 hits. There are no noticeable outliers but there may be some on the left tail.
+
+**BBA** - This plot is slightly skewed to the right with a median at 524 walks allowed with no noticeable outliers. The middle 50 percent of the data is between 481 and 569 walks.
+
+**SOA** - This plot is slightly skewed to the right with a median 1070 strikeouts with the middle 50 percent of the data is between 946 and 1233 strikeouts. There are no noticeable outliers.
+
+**HRA** - This plot is relatively normal with a median of 164 homeruns with the middle 50 percent of the data is between 139 and 185. There could be one outlier with a value above 300.
+
+**RA** - This plot is slightly skewed to the right with a median of 725 runs and the middle 50 percent of the data is between 669 and 792 runs. There could be one outlier above 1100 runs.
+
+**SHO** - This plot is skewed to the right with a median of 9 shutouts with the middle 50 percent of the data is between 7 and 12 shutouts. There are no noticeable outliers.
+
+**SV** - This plot has a very normal distribution and has a median of 41 saves with the middle 50 percent of the data is between 35 and 45 saves. There are no noticeable outliers
+
+Looking at the correlation plot it shows use potential multicollinearity issues with the predictors. 3 predictors in particular, hits allowed, runs allowed and ERA, have concerningly high correlations with multiple predictors and each other which would weaken the model. 
+
+
+Model Analysis
+===
+
+Column {data-width=400}
+---
+
+### Methods
+
+\[y = \beta_0 + \beta_1 * X_1 + \beta_2 * X_2 + ... + \beta_8 * X_8  + \epsilon \]
+
+Using multivariable linear regression model because wins are influenced by many aspects of team performance rather than a single metric. With a multivariable linear regression model we are able to consider each predictor all together while control the other predictors. Using an equation like the one above where each \[\beta\] is equal to a predictor, using the 8 variables we are able to create a model that can predict the number of wins in an MLB season using pitching statistics.
+
+The use of best subsets compares all possible models using a specific set of predictors and displays the best fitting model. Among all possible predictor combinations of up to eight predictors, this model achieves the highest adjusted $R^2$. This means it explains the most variation in team wins while removing unnecessary predictors as well as having highly significant predictors with very low p-values. Low p-values with a high adjusted $R^2$ indicate a well developed model. Therefore, the selected model is the statistically strongest and most efficient model available among all models tested.
+
+
+### Assumptions
+
+**Linear Assumption**
+The Residuals vs Fitted values plot scatters around the red line as well a being somewhat straight along 0. This suggests that the suggested model captures the linearity of the relationship of the predicted wins with the regressors used. Most of the data seems to fall between 60 and 100 on the fitted values.
+
+**Normality Assumption**
+Using the Q-Q Residuals plot, the data lies along the 45 degree line perfectly with a light tail below -2 Theoretical Quantiles. Along with the normally distributed predictors and the Q-Q Residuals plot, we can assume normality.
+
+**Equal Variance**
+The Scale Location plot has a red trend line that is relatively flat so we can assume equal variance. Just like in The Residuals vs Fitted values plot, most of the data seems to fall between 60 and 100 on the fitted values.
+
+**Influential Points**
+When looking at the cook's distance of all the points, there are no points that exceed a value of 1, so we can assume there are no influential points in our data.
+
+**Multicollinearity**
+When looking at the variance inflation factor (VIF), there are 2 predictors that exceed the value of 10 which means there is high correlation with the predictors ERA and RA. 
+
+**Model**
+When looking at this model, 2 predictors have been removed by best subsets meaning their p-values were more than 0.05. This means they are not significant to the model. These values are walks allowed and strikeouts allowed. Another predictor, runs allowed, also has a p-value of 0.0177 which is close to being not significant. To improve the model, we will be removing runs allowed because it has a value very close to be considered not significant as well as having a very high VIF factor causing multicollinearity. We will be keeping ERA in this model because it is a significant predictor to the model. It may have had a high VIF factor because ERA and RA are extremely similar statistics. By removing one, the other should have a reduced VIF.
+
+
+Column {.tabset data-width=600}
+---
+```{r model}
+fit.subsets <- regsubsets(W ~ ., data = wt, nvmax = 8)
+subs_sum <- summary(fit.subsets)
+best_size <- which.max(subs_sum$adjr2)
+best_terms <- names(coef(fit.subsets, best_size))[-1]
+best_formula <- as.formula(paste("W ~", paste(best_terms, collapse = " + ")))
+fit.best <- lm(best_formula, data = wt)
+```
+
+### Linear Assumption
+```{r la}
+plot(fit.best,1, col = "#19C2BD")
+```
+
+### Normality Assumption
+```{r nor}
+plot(fit.best,2, col = "#3EB489")
+```
+
+### Equal Variance
+```{r ev}
+plot(fit.best,3, col = "#19C2BD")
+```
+
+### Influential Points
+```{r ip}
+plot(fit.best,4, col ="#3EB489")
+```
+
+### Multicollinearity
+```{r mult}
+vif(fit.best)
+```
+
+### Model
+```{r mod1}
+summary(fit.best)
+```
+
+Model Refinement
+===
+Column {data-width=400}
+---
+
+Using best subsets instead of 8 predictors, we will be looking at 5 predictors to reduce multicollinearity in the model as well as improving significance.
+
+**Linear Assumption**
+The Residuals vs Fitted values plot scatters around the red line more than the original model but stays somewhat straight along 0. This suggests that the suggested model captures the linearity of the relationship of the predicted wins with the predictors used.
+
+**Normality Assumption**
+The data in the Q-Q Residuals plot, like the previous plot, also closely follows the 45 diagonal line so we can assume normality.
+
+**Equal Variance**
+The Scale Location plot has a red trend line that is relatively flat similar to the first model so we can assume equal variance. 
+
+**Influential Points**
+When looking at the cook's distance of all the points, there are no points that exceed the value of 1 so we can assume there are no influential points in our data.
+
+**Multicollinearity**
+Now, when looking at the variance inflation factor there are no values that exceed 10, which means there is a moderate to low correlation.
+
+**Conclusion**
+Even though the analysis plots are similar, the ultimate factor was multicollinearity. By removing the 3 predictors, all our assumptions can be made and conclude that this multiple linear regression model of MLB pitching statistics is accurate for predicting the number of wins in a season.
+
+```{r model1}
+wt <- wt %>%
+  select(W, HA, HRA, SHO, SV, ERA)
+
+fit.subsets1 <- regsubsets(W ~ ., data = wt, nvmax = 7)
+subs_sum1 <- summary(fit.subsets1)
+best_size1 <- which.max(subs_sum1$adjr2)
+best_terms1 <- names(coef(fit.subsets1, best_size1))[-1]
+best_formula1 <- as.formula(paste("W ~", paste(best_terms1, collapse = " + ")))
+fit.best1 <- lm(best_formula1, data = wt)
+```
+
+Column {.tabset data-width=600}
+---
+### Linear Assumption
+```{r la1}
+plot(fit.best1,1, col ="#19C2BD")
+```
+
+### Normality Assumption
+```{r nor1}
+plot(fit.best1,2, col = "#3EB489")
+```
+
+### Equal Variance
+```{r ev1}
+plot(fit.best1,3, col = "#19C2BD")
+```
+
+### Influential Points
+```{r ip1}
+plot(fit.best1,4, col = "#3EB489")
+```
+
+### Multicollinearity
+```{r mult1}
+vif(fit.best1)
+```
+
+Results
+===
+
+Column {.tabset data-width=400}
+---
+
+### Summary of Model
+```{r sum}
+summary(fit.best1)
+```
+
+### Hits Allowed vs Wins
+```{r havw}
+wt %>%
+  ggplot(aes(x=HA, y=W)) + geom_point(col = "darkgreen") +  geom_smooth(method = "lm", se = FALSE, color = "green")
+```
+
+### Homeruns Allowed vs Wins
+```{r hravw}
+wt %>%
+  ggplot(aes(x=HRA, y=W)) + geom_point(col = "darkgreen")  +  geom_smooth(method = "lm", se = FALSE, color = "green")
+```
+
+Column {.tabset data-width=600}
+---
+
+### Discussion
+The final model predicts the number of wins a MLB baseball team has in a season using earned run average (ERA), walks allowed, homeruns allowed, shutouts by pitchers, and saves with a adjusted $R^2$ value of 0.5573. This shows that 55.73% of the variability is explained by these predictors after taking into account model complexity.
+
+The final equation to predict the number of wins of a MLB baseball team is:
+
+$\hat{Wins}$ = 67.634 + 0.0138(HA) + 0.0771(HRA) + 0.461(SHO) + 0.645(SV) - 11.852(ERA)
+
+For additional hit allowed by pitchers, the expected number of wins increases by 0.0138 if all the other predictors remain constant.
+
+For additional homerun allowed by pitchers, the expected number of wins increases by 0.0771 if all the other predictors remain constant.
+
+For additional shutout allowed by pitchers, the expected number of wins increases by 0.461 if all the other predictors remain constant.
+
+For additional save allowed by pitchers, the expected number of wins increases by 0.645 if all the other predictors remain constant.
+
+For each one unit increase in ERA, the expected value of the dependent variable decreases by 11.852 if all the other predictors remain constant.
+
+The goal of this model was to accurately predict the number of wins of MLB teams based on pitching metrics. A predictor to note is ERA as it dominates this model. ERA is a very important pitching statistic and is commonly discussed by professionals. This reinforces the idea that run prevention is essential to win games in the MLB. Another predictor to note is that both hits allowed and home runs allowed are positive predictors for winning games. Normally these predictors are seen as negative towards winning games. When looking at the 2 statistics in a scatter plot with the number of wins, we can see that as the number of homeruns against and hits allowed increase, the number of wins for a team decreases. However, in the model they are both statistically significant. Removing them would cause variable bias similar to removing relative pitching data.
+
+
+### Limitations
+
+The following are some of the limitations of this model:
+
+* There is a moderate adjusted $R^2$ value of 0.5573 that only accounts for 55.73% of the variability after accounting for model complexity. Which could be a little higher.
+
+* There may be more pitching stats that could interact with each other.
+
+* This data set is from 1980 to present so there could have been a shift in pitching affectability over the years.
+
+* There are many other factors that could impact winning games in the MLB, like the batting and fielding of each team.
+
+It would be interesting to see the effect that all baseball metrics have on winning not just pitching alone to see if there is a more accurate model.
+
+### Conclusion
+
+The final regression model provides a explanation of how pitching performance of MLB teams from 1980 to present relates to the amount of wins a team has in the regular season. Hits against, homeruns against, shutouts, saves and earned run average are all significant predictors for this model showing that run prevention is a important outcome for winning games. However, with hits against and homeruns being positive influences it is also important to have good batting and fielding on the team. Overall, this model explains over half of the variation after accounting for model complexity with an adjusted $R^2$ value of 55.73%. Which demonstrates that pitching success from MLB teams helps them win more games. In conclusion this model does help predict the number of wins in a MLB season using pitching statitics alone
+
+
+### About the Author/Reasoning
+
+My name is Evan McClelland and I am a senior studying Mechanical Engineering Student at The University of Dayton with a minor in Data Analytics.
+
+I am doing this project because I love sports and looking at the statistics of all the players and teams. I have the opportunity to work with the University of Dayton Baseball team to do statistics for them and this is good practice working with baseball data and getting familiar with it. 
+
+Connect with me on [LinkedIn](https://www.linkedin.com/in/evanmcclelland3/)
+
+### Citations
+
+Lahman, Sean, et al. Lahman: Sean Lahman Baseball Database. R package version 14.0, 2024.
+
+OpenAI. ChatGPT, version 5.1, OpenAI, 2025, https://chat.openai.com/
+
+Chat GPT assisted in code writing and formatting.
+
+Some of the packages used to create this project include
+
+* flexdashboard: to build an interactive dashboard
+
+* plotly: to create interactive graphs
+
+* Lahman: provides the full Sean Lahman Baseball Dataset in R
+
+* tidyverse: collection of packages like dplyr, ggplot2, ect. to help with datacleaning and visualization
+
+* pacman: a package that loads and installs packages automatically
+
+* car: a package used for regression diagnostic tools
+
+* MASS: a package used for model building
+
+* leaps: a package used for model building
+
+* corrplot: a package that helps create correlation matrixes
+
+* knitr: a package used to create tables
